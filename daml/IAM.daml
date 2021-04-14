@@ -1,0 +1,70 @@
+module IAM where
+import Daml.Script
+import Utilities
+
+template VendorEmployeeAthorization
+    with 
+        vendor : Party
+        employee : Party 
+    where 
+        signatory vendor 
+        controller employee can 
+            nonconsuming VendorEmployeeAthorization_MakeVendorProposal : ContractId VendorProposal 
+                with 
+                    hospital : Party
+                    hospitalEmployee : Party -- Option 1) Vendor employee needs to make the specific hospital employee observer of the offer 
+                                             -- Option 2) Hospital makes a specific hospital employee observer
+                do
+                    create VendorProposal with ..
+
+template HospitalEmployeeAthorization
+    with 
+        hospital : Party
+        employee : Party 
+    where 
+        signatory hospital  
+        controller employee can 
+            nonconsuming HospitalEmployeeAthorization_AcceptVendorProposal : ContractId VendorContract 
+                with 
+                    proposalCid : ContractId VendorProposal 
+                do 
+                    exercise proposalCid VendorProposal_Accept
+
+template VendorProposal 
+    with 
+        hospital : Party 
+        vendor : Party 
+        hospitalEmployee : Party
+    where 
+        signatory vendor 
+        observer hospitalEmployee
+        controller hospital can 
+            VendorProposal_Accept : ContractId VendorContract 
+                do 
+                    create VendorContract with ..
+    
+template VendorContract 
+    with
+        hospital : Party
+        vendor : Party 
+    where
+        signatory vendor, hospital 
+
+
+test : Script ()
+test = do 
+    [vendor, vendorEmployee, hospital, hospitalEmployee] <- makePartiesFrom ["Vendor", "VendorEmployee", "Hospital", "HospitalEmployee"]
+    vendorEmployeeAuthorization <- submit vendor $ createCmd VendorEmployeeAthorization 
+        with 
+            vendor
+            employee = vendorEmployee 
+    hospitalEmployeeAuthorization <- submit hospital $ createCmd HospitalEmployeeAthorization 
+        with 
+            hospital
+            employee = hospitalEmployee 
+    vendorProposal <- submit vendorEmployee $ exerciseCmd vendorEmployeeAuthorization VendorEmployeeAthorization_MakeVendorProposal with .. 
+    vendorContract <- submit hospitalEmployee $ exerciseCmd hospitalEmployeeAuthorization HospitalEmployeeAthorization_AcceptVendorProposal
+        with proposalCid = vendorProposal
+    
+    pure ()
+    
