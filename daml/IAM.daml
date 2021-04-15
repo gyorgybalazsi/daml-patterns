@@ -13,6 +13,8 @@ template OperatorRoleContract
             nonconsuming OperatorRoleContract_MakeVendorRoleContractOffer : ContractId VendorRoleContractOffer 
                 with 
                     vendor : Party 
+                    linkedHospitals : [Party] -- In this example the list of linked hospitals can only be set in the role contract offer
+                                              -- we can also implement an update choice in the role contract
                 do 
                     create VendorRoleContractOffer with .. 
             nonconsuming OperatorRoleContract_MakeHospitalRoleContractOffer : ContractId HospitalRoleContractOffer 
@@ -27,25 +29,33 @@ template VendorRoleContractOffer
     with 
         operator : Party 
         vendor : Party 
+        linkedHospitals : [Party] 
     where 
         signatory operator 
         controller vendor can 
             VendorRoleContractOffer_Accept : ContractId VendorRoleContract 
                 do 
-                    create VendorRoleContract with ..
+                    create VendorRoleContract with employees = [], ..
 
 template VendorRoleContract 
     with 
         operator : Party 
         vendor : Party 
+        linkedHospitals : [Party]
+        employees : [Party]
     where 
-        signatory operator, vendor -- Operator cannot act as vendor and authorize employee
+        signatory operator, vendor -- Operator cannot act as vendor and authorize employee 
+        observer employees
+        key vendor : Party
+        maintainer key : Party
         controller vendor can 
-            nonconsuming VendorRoleContract_AuthorizeEmployee : ContractId VendorEmployeeAthorization 
+            VendorRoleContract_AuthorizeEmployee : ContractId VendorEmployeeAthorization 
                 with 
                     employee : Party -- Vendor can authorize herself as an employee
-                do 
-                    create VendorEmployeeAthorization with .. 
+                do  
+                    create this with employees = employee :: employees -- Employee needs to be observer in order to be able to fetch role contract 
+                                                                       -- for being able to see the linked hospitals
+                    create VendorEmployeeAthorization with ..
 
 -- HOSPITAL ROLE CONTRACT
 
@@ -87,8 +97,11 @@ template VendorEmployeeAthorization
                 with 
                     hospital : Party
                     hospitalEmployee : Party -- Option 1) Vendor employee needs to make the specific hospital employee observer of the offer 
-                                             -- Option 2) Hospital makes a specific hospital employee observer
+                                             -- Option 2) Hospital makes a specific hospital employee observer 
+                                             -- Option 3) Hospital employees can read as hospital (specified in the JWT token)
                 do
+                    (_, vendorRoleContract) <- fetchByKey @VendorRoleContract vendor 
+                    assertMsg "Hospital must be linked to vendor" $ elem hospital vendorRoleContract.linkedHospitals
                     create VendorProposal with ..
 
 template HospitalEmployeeAthorization
@@ -113,7 +126,7 @@ template VendorProposal
         hospitalEmployee : Party
     where 
         signatory vendor 
-        observer hospitalEmployee
+        observer hospitalEmployee -- Option 1) of visibility
         controller hospital can 
             VendorProposal_Accept : ContractId VendorContract 
                 do 
@@ -137,7 +150,8 @@ test = do
 
     -- CREATE VENDOR ROLE CONTRACT
 
-    vendorRoleContractOffer <- submit operator $ exerciseCmd operatorRoleContract OperatorRoleContract_MakeVendorRoleContractOffer with ..
+    vendorRoleContractOffer <- submit operator $ exerciseCmd operatorRoleContract OperatorRoleContract_MakeVendorRoleContractOffer 
+        with linkedHospitals = [hospital], ..
     
     vendorRoleContract <- submit vendor $ exerciseCmd vendorRoleContractOffer VendorRoleContractOffer_Accept 
 
