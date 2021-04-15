@@ -1,6 +1,80 @@
 module IAM where
 import Daml.Script
-import Utilities
+import Utilities 
+
+--  OPERATOR ROLE CONTRACT
+
+template OperatorRoleContract 
+    with 
+        operator : Party 
+    where 
+        signatory operator 
+        controller operator can 
+            nonconsuming OperatorRoleContract_MakeVendorRoleContractOffer : ContractId VendorRoleContractOffer 
+                with 
+                    vendor : Party 
+                do 
+                    create VendorRoleContractOffer with .. 
+            nonconsuming OperatorRoleContract_MakeHospitalRoleContractOffer : ContractId HospitalRoleContractOffer 
+                with 
+                    hospital : Party 
+                do 
+                    create HospitalRoleContractOffer with .. 
+
+-- VENDOR ROLE CONTRACT
+
+template VendorRoleContractOffer
+    with 
+        operator : Party 
+        vendor : Party 
+    where 
+        signatory operator 
+        controller vendor can 
+            VendorRoleContractOffer_Accept : ContractId VendorRoleContract 
+                do 
+                    create VendorRoleContract with ..
+
+template VendorRoleContract 
+    with 
+        operator : Party 
+        vendor : Party 
+    where 
+        signatory operator, vendor -- Operator cannot act as vendor and authorize employee
+        controller vendor can 
+            nonconsuming VendorRoleContract_AuthorizeEmployee : ContractId VendorEmployeeAthorization 
+                with 
+                    employee : Party -- Vendor can authorize herself as an employee
+                do 
+                    create VendorEmployeeAthorization with .. 
+
+-- HOSPITAL ROLE CONTRACT
+
+template HospitalRoleContractOffer 
+    with 
+        operator : Party 
+        hospital : Party 
+    where 
+        signatory operator 
+        controller hospital can 
+            HospitalRoleContractOffer_Accept : ContractId HospitalRoleContract 
+                do 
+                    create HospitalRoleContract  with ..
+
+
+template HospitalRoleContract 
+    with 
+        operator : Party 
+        hospital : Party 
+    where 
+        signatory operator, hospital  -- Operator cannot act as hospital and authorize employee
+        controller hospital can 
+            nonconsuming HospitalRoleContract_AuthorizeEmployee : ContractId HospitalEmployeeAthorization 
+                with 
+                    employee : Party -- Hospital can authorize herself as an employee
+                do 
+                    create HospitalEmployeeAthorization with ..
+
+-- EMPLOYEE AUTHORIZATION
 
 template VendorEmployeeAthorization
     with 
@@ -26,9 +100,11 @@ template HospitalEmployeeAthorization
         controller employee can 
             nonconsuming HospitalEmployeeAthorization_AcceptVendorProposal : ContractId VendorContract 
                 with 
-                    proposalCid : ContractId VendorProposal 
+                    proposalCid : ContractId VendorProposal -- In next version we can use key instead of contract id
                 do 
-                    exercise proposalCid VendorProposal_Accept
+                    exercise proposalCid VendorProposal_Accept 
+
+-- PROPOSE / ACCEPT
 
 template VendorProposal 
     with 
@@ -53,15 +129,34 @@ template VendorContract
 
 test : Script ()
 test = do 
-    [vendor, vendorEmployee, hospital, hospitalEmployee] <- makePartiesFrom ["Vendor", "VendorEmployee", "Hospital", "HospitalEmployee"]
-    vendorEmployeeAuthorization <- submit vendor $ createCmd VendorEmployeeAthorization 
-        with 
-            vendor
-            employee = vendorEmployee 
-    hospitalEmployeeAuthorization <- submit hospital $ createCmd HospitalEmployeeAthorization 
-        with 
-            hospital
-            employee = hospitalEmployee 
+    [operator, vendor, vendorEmployee, hospital, hospitalEmployee] <- makePartiesFrom ["Operator", "Vendor", "VendorEmployee", "Hospital", "HospitalEmployee"]
+
+    -- CREATE OPERATOR ROLE CONTRACT
+    
+    operatorRoleContract <- submit operator $ createCmd OperatorRoleContract with .. 
+
+    -- CREATE VENDOR ROLE CONTRACT
+
+    vendorRoleContractOffer <- submit operator $ exerciseCmd operatorRoleContract OperatorRoleContract_MakeVendorRoleContractOffer with ..
+    
+    vendorRoleContract <- submit vendor $ exerciseCmd vendorRoleContractOffer VendorRoleContractOffer_Accept 
+
+    -- CREATE HOSPITAL ROLE CONTRACT 
+
+    hospitalRoleContractOffer <- submit operator $ exerciseCmd operatorRoleContract OperatorRoleContract_MakeHospitalRoleContractOffer with ..
+
+    hospitalRoleContract <- submit hospital $ exerciseCmd hospitalRoleContractOffer HospitalRoleContractOffer_Accept
+
+    -- EMPLOYEE AUTHORIZATION
+    
+    vendorEmployeeAuthorization <- submit vendor $ exerciseCmd vendorRoleContract VendorRoleContract_AuthorizeEmployee
+        with employee = vendorEmployee 
+    
+    hospitalEmployeeAuthorization <- submit hospital $ exerciseCmd hospitalRoleContract HospitalRoleContract_AuthorizeEmployee 
+        with employee = hospitalEmployee 
+
+    -- PROPOSE / ACCEPT
+
     vendorProposal <- submit vendorEmployee $ exerciseCmd vendorEmployeeAuthorization VendorEmployeeAthorization_MakeVendorProposal with .. 
     vendorContract <- submit hospitalEmployee $ exerciseCmd hospitalEmployeeAuthorization HospitalEmployeeAthorization_AcceptVendorProposal
         with proposalCid = vendorProposal
