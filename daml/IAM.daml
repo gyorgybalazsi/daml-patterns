@@ -96,9 +96,9 @@ template VendorEmployeeAthorization
             nonconsuming VendorEmployeeAthorization_MakeVendorProposal : ContractId VendorProposal 
                 with 
                     hospital : Party
-                    hospitalEmployee : Party -- Option 1) Vendor employee needs to make the specific hospital employee observer of the offer 
+                    {- hospitalEmployee : Party -- Option 1) Vendor employee needs to make the specific hospital employee observer of the offer 
                                              -- Option 2) Hospital makes a specific hospital employee observer 
-                                             -- Option 3) Hospital employees can read as hospital (specified in the JWT token)
+                                             -- Option 3) Hospital employees can read as hospital (specified in the JWT token) -}
                 do
                     (_, vendorRoleContract) <- fetchByKey @VendorRoleContract vendor 
                     assertMsg "Hospital must be linked to vendor" $ elem hospital vendorRoleContract.linkedHospitals
@@ -123,10 +123,10 @@ template VendorProposal
     with 
         hospital : Party 
         vendor : Party 
-        hospitalEmployee : Party
+        {- hospitalEmployee : Party -}
     where 
         signatory vendor 
-        observer hospitalEmployee -- Option 1) of visibility
+        {- observer hospitalEmployee -- Option 1) of visibility -}
         controller hospital can 
             VendorProposal_Accept : ContractId VendorContract 
                 do 
@@ -152,10 +152,8 @@ test = do
 
     vendorRoleContractOffer <- submit operator $ exerciseCmd operatorRoleContract OperatorRoleContract_MakeVendorRoleContractOffer 
         with linkedHospitals = [hospital], ..
-
-        -- VendorEmployee can act as Vendor - we won't be able to track which employee acted, and specify which contracts can be acted on by the employees
     
-    vendorRoleContract <- submitMulti [vendor] [vendor] $ exerciseCmd vendorRoleContractOffer VendorRoleContractOffer_Accept 
+    vendorRoleContract <- submit vendor $ exerciseCmd vendorRoleContractOffer VendorRoleContractOffer_Accept 
 
     -- CREATE HOSPITAL ROLE CONTRACT 
 
@@ -174,7 +172,9 @@ test = do
     -- PROPOSE / ACCEPT
 
     vendorProposal <- submit vendorEmployee $ exerciseCmd vendorEmployeeAuthorization VendorEmployeeAthorization_MakeVendorProposal with .. 
-    vendorContract <- submit hospitalEmployee $ exerciseCmd hospitalEmployeeAuthorization HospitalEmployeeAthorization_AcceptVendorProposal
+
+    -- Hospital employee reads as hospital
+    vendorContract <- submitMulti [hospitalEmployee] [hospital] $ exerciseCmd hospitalEmployeeAuthorization HospitalEmployeeAthorization_AcceptVendorProposal
         with proposalCid = vendorProposal
     
     pure ()
