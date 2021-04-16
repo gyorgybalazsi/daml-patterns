@@ -152,8 +152,10 @@ test = do
 
     vendorRoleContractOffer <- submit operator $ exerciseCmd operatorRoleContract OperatorRoleContract_MakeVendorRoleContractOffer 
         with linkedHospitals = [hospital], ..
+
+        -- VendorEmployee can act as Vendor - we won't be able to track which employee acted, and specify which contracts can be acted on by the employees
     
-    vendorRoleContract <- submit vendor $ exerciseCmd vendorRoleContractOffer VendorRoleContractOffer_Accept 
+    vendorRoleContract <- submitMulti [vendor] [vendor] $ exerciseCmd vendorRoleContractOffer VendorRoleContractOffer_Accept 
 
     -- CREATE HOSPITAL ROLE CONTRACT 
 
