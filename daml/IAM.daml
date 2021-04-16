@@ -14,7 +14,8 @@ template OperatorRoleContract
                 with 
                     vendor : Party 
                     linkedHospitals : [Party] -- In this example the list of linked hospitals can only be set in the role contract offer
-                                              -- we can also implement an update choice in the role contract
+                                              -- we can also implement an update choice in the role contract 
+                                              -- OR CREATING A CHOICE FOR THE OPERATOR TO DO SIMULTANEOUSLY
                 do 
                     create VendorRoleContractOffer with .. 
             nonconsuming OperatorRoleContract_MakeHospitalRoleContractOffer : ContractId HospitalRoleContractOffer 
@@ -23,9 +24,10 @@ template OperatorRoleContract
                 do 
                     create HospitalRoleContractOffer with .. 
 
+
 -- VENDOR ROLE CONTRACT
 
-template VendorRoleContractOffer
+template VendorRoleContractOffer -- We can do the other way round by VendorRoleContractRequest
     with 
         operator : Party 
         vendor : Party 
@@ -55,7 +57,8 @@ template VendorRoleContract
                 do  
                     create this with employees = employee :: employees -- Employee needs to be observer in order to be able to fetch role contract 
                                                                        -- for being able to see the linked hospitals
-                    create VendorEmployeeAthorization with ..
+                                                                       -- act as hospital not enough?
+                    create VendorEmployeeAthorization with .. 
 
 -- HOSPITAL ROLE CONTRACT
 
