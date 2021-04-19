@@ -44,7 +44,7 @@ template VendorRoleContract
         key vendor : Party
         maintainer key : Party
         controller vendor can 
-            VendorRoleContract_AuthorizeFinanceEmployee : ContractId VendorFinanceEmployeeAthorization 
+            nonconsuming VendorRoleContract_AuthorizeFinanceEmployee : ContractId VendorFinanceEmployeeAthorization 
                 with 
                     employee : Party -- Vendor can authorize herself as an employee
                 do  
@@ -91,7 +91,8 @@ template VendorFinanceEmployeeAthorization
                     hospital : Party -- Hospital employees must be able to read as hospital (specified in the JWT token)
                     vendorProposalId : Text
                 do 
-                    lookupByKey @VendorHospitalLink (vendor, hospital) -- Vendor and hospital must be linked, VendorEmployee must read as Vendor
+                    visible <- visibleByKey @VendorHospitalLink (vendor, hospital) -- Vendor and hospital must be linked, VendorEmployee must read as Vendor
+                    assertMsg "Vendor and hospital must be linked" $ visible
                     create VendorProposal with ..
 
 template HospitalFinanceEmployeeAthorization
@@ -166,6 +167,8 @@ test : Script ()
 test = do 
     [operator, vendor, vendorFinanceEmployee, hospital, hospitalFinanceEmployee] <- makePartiesFrom ["Operator", "Vendor", "VendorFinanceEmployee", "Hospital", "HospitalFinanceEmployee"]
 
+    [vendor2, vendor2FinanceEmployee] <- makePartiesFrom ["Vendor2", "Vendor2FinanceEmployee"]
+
     -- CREATE OPERATOR ROLE CONTRACT
     
     operatorRoleContract <- submit operator $ createCmd OperatorRoleContract with .. 
@@ -177,6 +180,11 @@ test = do
     
     vendorRoleContract <- submit vendor $ exerciseCmd vendorRoleContractOffer VendorRoleContractOffer_Accept 
 
+    vendorRoleContractOffer2 <- submit operator $ exerciseCmd operatorRoleContract OperatorRoleContract_MakeVendorRoleContractOffer 
+        with vendor = vendor2, ..
+    
+    vendorRoleContract2 <- submit vendor2 $ exerciseCmd vendorRoleContractOffer2 VendorRoleContractOffer_Accept 
+
     -- CREATE HOSPITAL ROLE CONTRACT 
 
     hospitalRoleContractOffer <- submit operator $ exerciseCmd operatorRoleContract OperatorRoleContract_MakeHospitalRoleContractOffer with ..
@@ -187,6 +195,9 @@ test = do
     
     vendorFinanceEmployeeAuthorization <- submit vendor $ exerciseCmd vendorRoleContract VendorRoleContract_AuthorizeFinanceEmployee
         with employee = vendorFinanceEmployee 
+
+    vendor2FinanceEmployeeAuthorization <- submit vendor2 $ exerciseCmd vendorRoleContract2 VendorRoleContract_AuthorizeFinanceEmployee
+        with employee = vendor2FinanceEmployee 
     
     hospitalEmployeeAuthorization <- submit hospital $ exerciseCmd hospitalRoleContract HospitalRoleContract_AuthorizeEmployee 
         with employee = hospitalFinanceEmployee 
@@ -207,7 +218,9 @@ test = do
 
     -- Hospital employee must read as hospital
     vendorContract <- submitMulti [hospitalFinanceEmployee] [hospital] $ exerciseCmd hospitalEmployeeAuthorization HospitalEmployeeAthorization_AcceptVendorProposal
-        with proposalCid = vendorProposal
+        with proposalCid = vendorProposal 
+
+    vendorProposal2 <- submitMultiMustFail [vendor2FinanceEmployee] [vendor2] $ exerciseCmd vendor2FinanceEmployeeAuthorization VendorEmployeeAthorization_MakeVendorProposal with .. 
     
     pure ()
     
