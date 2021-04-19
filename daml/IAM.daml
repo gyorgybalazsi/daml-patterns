@@ -13,9 +13,6 @@ template OperatorRoleContract
             nonconsuming OperatorRoleContract_MakeVendorRoleContractOffer : ContractId VendorRoleContractOffer 
                 with 
                     vendor : Party 
-                    linkedHospitals : [Party] -- In this example the list of linked hospitals can only be set in the role contract offer
-                                              -- we can also implement an update choice in the role contract 
-                                              -- OR CREATING A CHOICE FOR THE OPERATOR TO DO SIMULTANEOUSLY
                 do 
                     create VendorRoleContractOffer with .. 
             nonconsuming OperatorRoleContract_MakeHospitalRoleContractOffer : ContractId HospitalRoleContractOffer 
@@ -31,34 +28,27 @@ template VendorRoleContractOffer -- We can do the other way round by VendorRoleC
     with 
         operator : Party 
         vendor : Party 
-        linkedHospitals : [Party] 
     where 
         signatory operator 
         controller vendor can 
             VendorRoleContractOffer_Accept : ContractId VendorRoleContract 
                 do 
-                    create VendorRoleContract with employees = [], ..
+                    create VendorRoleContract with ..
 
 template VendorRoleContract 
     with 
         operator : Party 
         vendor : Party 
-        linkedHospitals : [Party]
-        employees : [Party]
     where 
         signatory operator, vendor -- Operator cannot act as vendor and authorize employee 
-        observer employees
         key vendor : Party
         maintainer key : Party
         controller vendor can 
-            VendorRoleContract_AuthorizeEmployee : ContractId VendorEmployeeAthorization 
+            VendorRoleContract_AuthorizeFinanceEmployee : ContractId VendorFinanceEmployeeAthorization 
                 with 
                     employee : Party -- Vendor can authorize herself as an employee
                 do  
-                    create this with employees = employee :: employees -- Employee needs to be observer in order to be able to fetch role contract 
-                                                                       -- for being able to see the linked hospitals
-                                                                       -- act as hospital not enough?
-                    create VendorEmployeeAthorization with .. 
+                    create VendorFinanceEmployeeAthorization with .. 
 
 -- HOSPITAL ROLE CONTRACT
 
@@ -81,30 +71,30 @@ template HospitalRoleContract
     where 
         signatory operator, hospital  -- Operator cannot act as hospital and authorize employee
         controller hospital can 
-            nonconsuming HospitalRoleContract_AuthorizeEmployee : ContractId HospitalEmployeeAthorization 
+            nonconsuming HospitalRoleContract_AuthorizeEmployee : ContractId HospitalFinanceEmployeeAthorization 
                 with 
                     employee : Party -- Hospital can authorize herself as an employee
                 do 
-                    create HospitalEmployeeAthorization with ..
+                    create HospitalFinanceEmployeeAthorization with ..
 
 -- EMPLOYEE AUTHORIZATION
 
-template VendorEmployeeAthorization
+template VendorFinanceEmployeeAthorization
     with 
         vendor : Party
         employee : Party 
     where 
-        signatory vendor 
+        signatory vendor
         controller employee can 
             nonconsuming VendorEmployeeAthorization_MakeVendorProposal : ContractId VendorProposal 
                 with 
-                    hospital : Party -- Hospital employees can read as hospital (specified in the JWT token)
-                do
-                    (_, vendorRoleContract) <- fetchByKey @VendorRoleContract vendor 
-                    assertMsg "Hospital must be linked to vendor" $ elem hospital vendorRoleContract.linkedHospitals
+                    hospital : Party -- Hospital employees must be able to read as hospital (specified in the JWT token)
+                    vendorProposalId : Text
+                do 
+                    lookupByKey @VendorHospitalLink (vendor, hospital) -- Vendor and hospital must be linked, VendorEmployee must read as Vendor
                     create VendorProposal with ..
 
-template HospitalEmployeeAthorization
+template HospitalFinanceEmployeeAthorization
     with 
         hospital : Party
         employee : Party 
@@ -113,7 +103,7 @@ template HospitalEmployeeAthorization
         controller employee can 
             nonconsuming HospitalEmployeeAthorization_AcceptVendorProposal : ContractId VendorContract 
                 with 
-                    proposalCid : ContractId VendorProposal -- In next version we can use key instead of contract id
+                    proposalCid : ContractId VendorProposal 
                 do 
                     exercise proposalCid VendorProposal_Accept 
 
@@ -123,10 +113,12 @@ template VendorProposal
     with 
         hospital : Party 
         vendor : Party 
-        {- hospitalEmployee : Party -}
+        vendorProposalId : Text
     where 
         signatory vendor 
-        {- observer hospitalEmployee -- Option 1) of visibility -}
+        observer hospital 
+        key (vendor, vendorProposalId) : (Party, Text)
+        maintainer key._1
         controller hospital can 
             VendorProposal_Accept : ContractId VendorContract 
                 do 
@@ -139,7 +131,20 @@ template VendorContract
     where
         signatory vendor, hospital 
 
--- VENDOR HOSPITAL LINKS
+-- VENDOR HOSPITAL LINKS 
+
+template VendorHospitalLinkProposal -- We need to use propose / accept pattern in order to hide vendor proposels from operator
+    with 
+        operator : Party 
+        vendor : Party 
+        hospital : Party 
+    where 
+        signatory operator 
+        controller vendor can 
+            VendorHospitalLinkProposal_Accept : ContractId VendorHospitalLink 
+                do 
+                    create VendorHospitalLink with ..
+
 
 template VendorHospitalLink 
     with 
@@ -147,14 +152,19 @@ template VendorHospitalLink
         vendor : Party 
         hospital : Party 
     where
-        signatory operator 
-        key (operator, vendor, hospital) : (Party, Party, Party)
+        signatory vendor 
+        observer hospital
+        key (vendor, hospital) : (Party, Party)
         maintainer key._1
+        controller operator can 
+            VendorHospitalLink_Archive : ()
+                do 
+                    archive self
 
 
 test : Script ()
 test = do 
-    [operator, vendor, vendorEmployee, hospital, hospitalEmployee] <- makePartiesFrom ["Operator", "Vendor", "VendorEmployee", "Hospital", "HospitalEmployee"]
+    [operator, vendor, vendorFinanceEmployee, hospital, hospitalFinanceEmployee] <- makePartiesFrom ["Operator", "Vendor", "VendorFinanceEmployee", "Hospital", "HospitalFinanceEmployee"]
 
     -- CREATE OPERATOR ROLE CONTRACT
     
@@ -163,7 +173,7 @@ test = do
     -- CREATE VENDOR ROLE CONTRACT
 
     vendorRoleContractOffer <- submit operator $ exerciseCmd operatorRoleContract OperatorRoleContract_MakeVendorRoleContractOffer 
-        with linkedHospitals = [hospital], ..
+        with ..
     
     vendorRoleContract <- submit vendor $ exerciseCmd vendorRoleContractOffer VendorRoleContractOffer_Accept 
 
@@ -175,18 +185,28 @@ test = do
 
     -- EMPLOYEE AUTHORIZATION
     
-    vendorEmployeeAuthorization <- submit vendor $ exerciseCmd vendorRoleContract VendorRoleContract_AuthorizeEmployee
-        with employee = vendorEmployee 
+    vendorFinanceEmployeeAuthorization <- submit vendor $ exerciseCmd vendorRoleContract VendorRoleContract_AuthorizeFinanceEmployee
+        with employee = vendorFinanceEmployee 
     
     hospitalEmployeeAuthorization <- submit hospital $ exerciseCmd hospitalRoleContract HospitalRoleContract_AuthorizeEmployee 
-        with employee = hospitalEmployee 
+        with employee = hospitalFinanceEmployee 
+
+    -- LINK VENDOR AND HOSPITAL
+
+    vendorHospitalLinkProposal <- submit operator $createCmd VendorHospitalLinkProposal with ..
+
+    submit vendor $ exerciseCmd vendorHospitalLinkProposal VendorHospitalLinkProposal_Accept
 
     -- PROPOSE / ACCEPT
 
-    vendorProposal <- submit vendorEmployee $ exerciseCmd vendorEmployeeAuthorization VendorEmployeeAthorization_MakeVendorProposal with .. 
+    -- Vendor employee must read as Vendor
 
-    -- Hospital employee reads as hospital
-    vendorContract <- submitMulti [hospitalEmployee] [hospital] $ exerciseCmd hospitalEmployeeAuthorization HospitalEmployeeAthorization_AcceptVendorProposal
+    let vendorProposalId = "Vendor-proposal-id-abc123"
+
+    vendorProposal <- submitMulti [vendorFinanceEmployee] [vendor] $ exerciseCmd vendorFinanceEmployeeAuthorization VendorEmployeeAthorization_MakeVendorProposal with .. 
+
+    -- Hospital employee must read as hospital
+    vendorContract <- submitMulti [hospitalFinanceEmployee] [hospital] $ exerciseCmd hospitalEmployeeAuthorization HospitalEmployeeAthorization_AcceptVendorProposal
         with proposalCid = vendorProposal
     
     pure ()
