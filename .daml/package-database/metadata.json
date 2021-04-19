@@ -1,1 +1,1 @@
-{"fingerprintDependencies":[17040962854212277689,4837759863737366897],"directDependencies":["daml-trigger-1.11.1","daml-script-1.11.1"],"moduleRenamings":{}}
+{"fingerprintDependencies":[8430945067534365466,11790082301430008199],"directDependencies":["daml-script-1.12.0","daml-trigger-1.12.0"],"moduleRenamings":{}}

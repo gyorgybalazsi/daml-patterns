@@ -98,10 +98,7 @@ template VendorEmployeeAthorization
         controller employee can 
             nonconsuming VendorEmployeeAthorization_MakeVendorProposal : ContractId VendorProposal 
                 with 
-                    hospital : Party
-                    {- hospitalEmployee : Party -- Option 1) Vendor employee needs to make the specific hospital employee observer of the offer 
-                                             -- Option 2) Hospital makes a specific hospital employee observer 
-                                             -- Option 3) Hospital employees can read as hospital (specified in the JWT token) -}
+                    hospital : Party -- Hospital employees can read as hospital (specified in the JWT token)
                 do
                     (_, vendorRoleContract) <- fetchByKey @VendorRoleContract vendor 
                     assertMsg "Hospital must be linked to vendor" $ elem hospital vendorRoleContract.linkedHospitals
@@ -141,6 +138,18 @@ template VendorContract
         vendor : Party 
     where
         signatory vendor, hospital 
+
+-- VENDOR HOSPITAL LINKS
+
+template VendorHospitalLink 
+    with 
+        operator : Party
+        vendor : Party 
+        hospital : Party 
+    where
+        signatory operator 
+        key (operator, vendor, hospital) : (Party, Party, Party)
+        maintainer key._1
 
 
 test : Script ()
